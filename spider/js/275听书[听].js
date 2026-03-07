@@ -13,9 +13,9 @@ var rule = {
     title: '275听书网',
     编码: 'utf-8',
     host: 'https://m.i275.com', 
-    homeUrl: 'https://m.i275.com/index.html', 
-    url: 'https://m.i275.com/index.html', 
-    searchUrl: 'https://m.i275.com/search.php?q=**',
+    homeUrl: '/', 
+    url: '/', 
+    searchUrl: '/search.php?q=**',
     searchable: 1,
     quickSearch: 1,
     filterable: 0, 
@@ -33,54 +33,8 @@ var rule = {
     limit: 12, 
     hikerListCol: "avatar", 
     hikerClassListCol: "avatar",
-    推荐: $js.toString(() => {
-        let lists = [];
-        try {
-            const items = html.querySelectorAll('.grid a, .divide-y a');
-            if (items.length === 0) return lists;
-            items.forEach(item => {
-                const titleNode = item.querySelector('div.font-medium, h3');
-                const coverNode = item.querySelector('img');
-                const descNode = item.querySelector('div.text-xs, p:first-of-type');
-                const title = titleNode?.textContent?.trim() || '';
-                const cover = coverNode?.src || '';
-                let desc = descNode?.textContent?.trim() || '';
-                const href = item.getAttribute('href') || '';
-                if (desc) desc = desc.replace('演播', '').replace('作者', '').trim() || '未知';
-                const fullUrl = href ? (href.startsWith('http') ? href : rule.host + href) : '';
-                if (title && fullUrl) {
-                    lists.push({title, pic: cover, desc, url: fullUrl});
-                }
-            });
-        } catch (e) {
-            console.log('推荐解析失败:', e);
-        }
-        return lists;
-    }),
-    一级: $js.toString(() => {
-        let lists = [];
-        try {
-            const items = html.querySelectorAll('.grid a, .divide-y a');
-            if (items.length === 0) return lists;
-            items.forEach(item => {
-                const titleNode = item.querySelector('div.font-medium, h3');
-                const coverNode = item.querySelector('img');
-                const descNode = item.querySelector('div.text-xs, p:first-of-type');
-                const title = titleNode?.textContent?.trim() || '';
-                const cover = coverNode?.src || '';
-                let desc = descNode?.textContent?.trim() || '';
-                const href = item.getAttribute('href') || '';
-                if (desc) desc = desc.replace('演播', '').replace('作者', '').trim() || '未知';
-                const fullUrl = href ? (href.startsWith('http') ? href : rule.host + href) : '';
-                if (title && fullUrl) {
-                    lists.push({title, pic: cover, desc, url: fullUrl});
-                }
-            });
-        } catch (e) {
-            console.log('一级解析失败:', e);
-        }
-        return lists;
-    }),
+    推荐: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
+    一级: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
     搜索: $js.toString(() => {
         let lists = [];
         try {
@@ -92,9 +46,13 @@ var rule = {
                 const author = item.querySelector('p:nth-of-type(2)')?.textContent?.replace('作者', '').trim() || '未知作者';
                 const desc = `${actor} | ${author}`;
                 const href = item.getAttribute('href') || '';
-                const fullUrl = href ? (href.startsWith('http') ? href : rule.host + href) : '';
-                if (title && fullUrl) {
-                    lists.push({title, pic: cover, desc, url: fullUrl});
+                if (title && href) {
+                    lists.push({
+                        title: title,
+                        pic: cover,
+                        desc: desc,
+                        url: href.startsWith('/') ? rule.host + href : href
+                    });
                 }
             });
         } catch (e) {
@@ -109,9 +67,11 @@ var rule = {
             Array.from(chapterItems).slice(0, 50).forEach(item => {
                 const chapterTitle = item.querySelector('span.text-gray-700')?.textContent?.trim() || '';
                 const chapterHref = item.getAttribute('href') || '';
-                const fullUrl = chapterHref ? (chapterHref.startsWith('http') ? chapterHref : rule.host + chapterHref) : '';
-                if (chapterTitle && fullUrl) {
-                    chapters.push({title: chapterTitle, url: fullUrl});
+                if (chapterTitle && chapterHref) {
+                    chapters.push({
+                        title: chapterTitle,
+                        url: chapterHref.startsWith('/') ? rule.host + chapterHref : chapterHref
+                    });
                 }
             });
         } catch (e) {
@@ -133,8 +93,8 @@ var rule = {
                         timeout: rule.timeout,
                         cache: 'no-cache'
                     });
-                    if (res.status >= 400 && i < maxRetries - 1) {
-                        console.log(`请求返回${res.status}，第${i+1}次重试`);
+                    if (res.status >= 500 && i < maxRetries - 1) {
+                        console.log(`服务器返回${res.status}，第${i+1}次重试`);
                         continue;
                     }
                     return res;
@@ -165,10 +125,16 @@ var rule = {
                     audioUrl = audioUrl.replace('http://', 'https://');
                 }
             }
-            return {url: audioUrl || input, parse: 0};
+            return {
+                url: audioUrl || input,
+                parse: 0
+            };
         } catch (e) {
             console.log('音频提取失败:', e);
-            return {url: input, parse: 0};
+            return {
+                url: input,
+                parse: 0
+            };
         }
     }),
     play_parse: false, 
