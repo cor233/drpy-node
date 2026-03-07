@@ -12,8 +12,8 @@ var rule = {
     title: '275听书网',
     类型: '听书',
     host: 'https://m.i275.com',
-    homeUrl: '/',
-    url: '/booklist/fyclass_fypage.html',
+    homeUrl: '/',  // 首页就是推荐页
+    url: '/',      // 统一用首页
     detailUrl: '/book/fyid.html',
     searchUrl: '/search.php?q=**&page=fypage',
     searchable: 1,
@@ -24,8 +24,9 @@ var rule = {
         'Referer': 'https://m.i275.com/'
     },
     timeout: 5000,
-    class_name: '热门小说&玄幻奇幻&武侠仙侠&都市言情&历史军事&恐怖灵异&科幻游戏&悬疑推理',
-    class_url: 'hot&xuanhuan&wuxia&dushi&lishi&kongbu&keji&xuanyi',
+    // 分类相关全部清空
+    class_name: '',
+    class_url: '',
     play_parse: true,
     lazy: `js:
     let playUrl = input;
@@ -68,7 +69,7 @@ var rule = {
         input = '';
     }
     `,
-    // 推荐接口 - 首页最近上架
+    // 推荐接口 - 首页最近上架（固定显示）
     推荐: `js:
     let d = [];
     let html = request(input);
@@ -95,34 +96,9 @@ var rule = {
     });
     VODS = d;
     `,
-    // 一级接口 - 分类列表页
-    一级: `js:
-    let d = [];
-    let html = request(input);
-    // 分类页可能的结构
-    let list = jsp.pj(html, 'a[href*="/book/"]:has(img)');
-    if (list.length === 0) {
-        list = jsp.pj(html, '.book-item,.list-item');
-    }
-    list.forEach(it => {
-        let title = jsp.pdfh(it, 'h3,h2,div.title,div.name,div.font-medium,div.truncate&&Text');
-        let img = jsp.pdfa(it, 'img&&src');
-        let desc = jsp.pdfh(it, 'p,div.desc,div.info,div.text-xs,div.text-gray-500&&Text');
-        let href = jsp.pdfa(it, 'a&&href');
-        if (href && !href.startsWith('http')) {
-            href = rule.host + href;
-        }
-        if (title && href) {
-            d.push({
-                title: title,
-                img: img || '',
-                desc: desc || '',
-                url: href
-            });
-        }
-    });
-    VODS = d;
-    `,
+    // 一级直接用推荐（这样就不会请求分类页）
+    一级: 'js:VODS=rule.推荐(input);',
+    
     二级: `js:
     let html = request(input);
     
