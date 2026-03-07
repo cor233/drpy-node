@@ -13,8 +13,8 @@ var rule = {
     title: "275听书网",
     编码: "utf-8",
     host: "https://m.i275.com",
-    homeUrl: "https://m.i275.com/index.html",
-    url: "https://m.i275.com/index.html",
+    homeUrl: "https://m.i275.com",
+    url: "https://m.i275.com",
     searchUrl: "https://m.i275.com/search.php?q=**",
     searchable: 1,
     quickSearch: 1,
@@ -29,6 +29,7 @@ var rule = {
     limit: 12,
     hikerListCol: "avatar",
     hikerClassListCol: "avatar",
+    // 推荐列表（首页）- 强制返回标准数组
     推荐: $js.toString(() => {
         let lists = [];
         try {
@@ -37,13 +38,14 @@ var rule = {
                 const title = item.querySelector("div.font-medium, h3")?.textContent?.trim() || "";
                 const pic = item.querySelector("img")?.src || "";
                 const desc = item.querySelector("div.text-xs, p:first-of-type")?.textContent?.trim() || "未知";
-                const href = item.getAttribute("href") || "";
-                const url = href.startsWith("http") ? href : rule.host + href;
-                if (title && url) lists.push({title, pic, desc, url});
+                let href = item.getAttribute("href") || "";
+                href = href.startsWith("/") ? rule.host + href : href;
+                if (title && href) lists.push({title, pic, desc, url: href});
             });
         } catch (e) {}
         return lists;
     }),
+    // 一级列表（分类/搜索结果）- 强制返回标准数组
     一级: $js.toString(() => {
         let lists = [];
         try {
@@ -51,14 +53,16 @@ var rule = {
             items.forEach(item => {
                 const title = item.querySelector("div.font-medium, h3")?.textContent?.trim() || "";
                 const pic = item.querySelector("img")?.src || "";
-                const desc = item.querySelector("div.text-xs, p:first-of-type")?.textContent?.trim() || "未知";
-                const href = item.getAttribute("href") || "";
-                const url = href.startsWith("http") ? href : rule.host + href;
-                if (title && url) lists.push({title, pic, desc, url});
+                const actor = item.querySelector("p:first-of-type")?.textContent?.replace("演播", "").trim() || "未知演播";
+                const author = item.querySelector("p:nth-of-type(2)")?.textContent?.replace("作者", "").trim() || "未知作者";
+                let href = item.getAttribute("href") || "";
+                href = href.startsWith("/") ? rule.host + href : href;
+                if (title && href) lists.push({title, pic, desc: `${actor}|${author}`, url: href});
             });
         } catch (e) {}
         return lists;
     }),
+    // 搜索解析 - 强制返回标准数组
     搜索: $js.toString(() => {
         let lists = [];
         try {
@@ -68,41 +72,43 @@ var rule = {
                 const pic = item.querySelector("img")?.src || "";
                 const actor = item.querySelector("p:first-of-type")?.textContent?.replace("演播", "").trim() || "未知演播";
                 const author = item.querySelector("p:nth-of-type(2)")?.textContent?.replace("作者", "").trim() || "未知作者";
-                const desc = `${actor} | ${author}`;
-                const href = item.getAttribute("href") || "";
-                const url = href.startsWith("http") ? href : rule.host + href;
-                if (title && url) lists.push({title, pic, desc, url});
+                let href = item.getAttribute("href") || "";
+                href = href.startsWith("/") ? rule.host + href : href;
+                if (title && href) lists.push({title, pic, desc: `${actor}|${author}`, url: href});
             });
         } catch (e) {}
         return lists;
     }),
+    // 二级解析（书籍详情/章节列表）- 核心：返回详情数据结构
     二级: $js.toString(() => {
-        let lists = [];
+        let result = {lists: [], pic: "", desc: ""};
         try {
-            const items = html.querySelectorAll(".grid-cols-1 a[id^='chapter-pos-']");
-            items.forEach(item => {
-                const title = item.querySelector("span.text-gray-700")?.textContent?.trim() || "";
-                const href = item.getAttribute("href") || "";
-                const url = href.startsWith("http") ? href : rule.host + href;
-                if (title && url) lists.push({title, url});
+            // 提取书籍封面
+            result.pic = html.querySelector("div.w-32 img, div.w-20 img")?.src || "";
+            // 提取书籍简介
+            result.desc = html.querySelector(".line-clamp-3, .line-clamp-2")?.textContent?.trim() || "暂无简介";
+            // 提取章节列表（详情数据核心）
+            const chapters = html.querySelectorAll(".grid-cols-1 a[id^='chapter-pos-']");
+            chapters.forEach((item, idx) => {
+                const title = item.querySelector("span.text-gray-700")?.textContent?.trim() || `第${idx+1}章`;
+                let href = item.getAttribute("href") || "";
+                href = href.startsWith("/") ? rule.host + href : href;
+                if (title && href) result.lists.push({title, url: href});
             });
         } catch (e) {}
-        return {
-            lists: lists,
-            pic: html.querySelector("div.w-32 img")?.src || "",
-            desc: html.querySelector(".line-clamp-3")?.textContent?.trim() || ""
-        };
+        // 兜底：至少返回空数组，避免「未找到详情数据」
+        return result.lists.length > 0 ? result : {lists: [{title: "暂无章节", url: rule.homeUrl}], pic: "", desc: "暂无数据"};
     }),
+    // 音频提取（播放页）
     lazy: $js.toString(async () => {
+        let audioUrl = input;
         try {
             const res = await fetch(input, {headers: rule.headers, timeout: rule.timeout});
-            const html = await res.text();
-            const match = html.match(/new APlayer\({[\s\S]*?url:\s*["']([^"']+\.(m4a|mp3))["']/i);
-            const url = match ? (match[1].startsWith("http") ? match[1] : rule.host + match[1]) : input;
-            return {url, parse: 0};
-        } catch (e) {
-            return {url: input, parse: 0};
-        }
+            const htmlStr = await res.text();
+            const match = htmlStr.match(/new APlayer\({[\s\S]*?url:\s*["']([^"']+\.(m4a|mp3))["']/i);
+            audioUrl = match ? (match[1].startsWith("/") ? rule.host + match[1] : match[1]) : input;
+        } catch (e) {}
+        return {url: audioUrl, parse: 0};
     }),
     play_parse: false,
     sniffer: 0
