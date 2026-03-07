@@ -9,130 +9,105 @@
 })
 */
 var rule = {
-    类型: "听书",
-    title: "275听书网",
-    编码: "utf-8",
-    host: "https://m.i275.com",
-    homeUrl: "https://m.i275.com",
-    url: "https://m.i275.com",
-    searchUrl: "https://m.i275.com/search.php?q=**",
+    类型: '听书',
+    title: '275听书[听]',
+    编码: 'utf-8',
+    host: 'https://m.i275.com',
+    homeUrl: '/',
+    url: '/',
+    searchUrl: '/search.php?q=**',
     searchable: 1,
     quickSearch: 1,
     filterable: 0,
-    timeout: 10000,
+    timeout: 15000,
     headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-        "Referer": "https://m.i275.com/",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+        'Referer': 'https://m.i275.com/',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
     },
     limit: 12,
     hikerListCol: "avatar",
     hikerClassListCol: "avatar",
-    推荐: $js.toString(() => {
-        let lists = [];
-        try {
-            const items = html.querySelectorAll(".grid a, .divide-y a");
-            items.forEach(item => {
-                const title = item.querySelector("div.font-medium, h3")?.textContent?.trim() || "";
-                const pic = item.querySelector("img")?.src || "";
-                const desc = item.querySelector("div.text-xs, p:first-of-type")?.textContent?.trim() || "未知";
-                let href = item.getAttribute("href") || "";
-                href = href.startsWith("/") ? rule.host + href : href;
-                if (title && href) lists.push({title, pic, desc, url: href});
-            });
-        } catch (e) {}
-        return lists;
-    }),
-    一级: $js.toString(() => {
-        let lists = [];
-        try {
-            const items = html.querySelectorAll(".grid a, .divide-y a");
-            items.forEach(item => {
-                const title = item.querySelector("div.font-medium, h3")?.textContent?.trim() || "";
-                const pic = item.querySelector("img")?.src || "";
-                const actor = item.querySelector("p:first-of-type")?.textContent?.replace("演播", "").trim() || "未知演播";
-                const author = item.querySelector("p:nth-of-type(2)")?.textContent?.replace("作者", "").trim() || "未知作者";
-                let href = item.getAttribute("href") || "";
-                href = href.startsWith("/") ? rule.host + href : href;
-                if (title && href) lists.push({title, pic, desc: `${actor}|${author}`, url: href});
-            });
-        } catch (e) {}
-        return lists;
-    }),
+    推荐: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
+    一级: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
     搜索: $js.toString(() => {
         let lists = [];
         try {
-            const items = html.querySelectorAll(".divide-y a");
+            const items = html.querySelectorAll('.divide-y a');
             items.forEach(item => {
-                const title = item.querySelector("h3")?.textContent?.trim() || "";
-                const pic = item.querySelector("img")?.src || "";
-                const actor = item.querySelector("p:first-of-type")?.textContent?.replace("演播", "").trim() || "未知演播";
-                const author = item.querySelector("p:nth-of-type(2)")?.textContent?.replace("作者", "").trim() || "未知作者";
-                let href = item.getAttribute("href") || "";
-                href = href.startsWith("/") ? rule.host + href : href;
-                if (title && href) lists.push({title, pic, desc: `${actor}|${author}`, url: href});
+                const title = item.querySelector('h3')?.textContent?.trim() || '';
+                const cover = item.querySelector('img')?.src || '';
+                const actor = item.querySelector('p:first-of-type')?.textContent?.replace('演播', '').trim() || '未知演播';
+                const author = item.querySelector('p:nth-of-type(2)')?.textContent?.replace('作者', '').trim() || '未知作者';
+                const desc = `${actor} | ${author}`;
+                const href = item.getAttribute('href') || '';
+                if (title && href) {
+                    lists.push({
+                        title: title,
+                        pic: cover,
+                        desc: desc,
+                        url: href.startsWith('/') ? rule.host + href : href
+                    });
+                }
             });
         } catch (e) {}
         return lists;
     }),
-    // 核心修复：章节列表提取（覆盖所有可能的章节选择器）
     二级: $js.toString(() => {
-        let result = {lists: [], pic: "", desc: ""};
+        let chapters = [];
         try {
-            // 1. 提取书籍基础信息
-            result.pic = html.querySelector("div.w-32 img, div.w-20 img, [alt*='封面']")?.src || "";
-            result.desc = html.querySelector(".line-clamp-3, .line-clamp-2, [class*='desc'], p")?.textContent?.trim() || "暂无简介";
-            
-            // 2. 提取章节列表（关键：扩展所有可能的章节选择器）
-            const chapterSelectors = [
-                ".grid-cols-1 a[id^='chapter-pos-']",  // 原章节选择器
-                ".grid-cols-1 a",                      // 兜底：grid布局下所有a标签
-                ".divide-y a",                         // 兜底：分割线布局下所有a标签
-                "a[href*='/play/']"                    // 核心：所有播放页链接（必中）
-            ];
-            
-            let chapters = [];
-            chapterSelectors.forEach(selector => {
-                const items = html.querySelectorAll(selector);
-                items.forEach((item, idx) => {
-                    // 过滤非章节链接
-                    if (!item.getAttribute("href")?.includes("/play/")) return;
-                    
-                    // 提取章节标题
-                    let title = item.querySelector("span.text-gray-700, span, div")?.textContent?.trim() || "";
-                    if (!title) title = `第${idx+1}章`; // 标题为空时兜底
-                    
-                    // 拼接完整链接
-                    let href = item.getAttribute("href") || "";
-                    href = href.startsWith("/") ? rule.host + href : href;
-                    
-                    // 避免重复章节
-                    if (!chapters.some(c => c.url === href)) {
-                        chapters.push({title, url: href});
-                    }
-                });
+            const chapterItems = html.querySelectorAll('a[href*="/play/"]');
+            chapterItems.forEach(item => {
+                const chapterTitle = item.textContent?.trim() || '';
+                const chapterHref = item.getAttribute('href') || '';
+                if (chapterTitle && chapterHref && chapterTitle.length > 1) {
+                    chapters.push({
+                        title: chapterTitle,
+                        url: chapterHref.startsWith('/') ? rule.host + chapterHref : chapterHref
+                    });
+                }
             });
-            
-            // 3. 强制兜底：至少返回1条章节数据
-            result.lists = chapters.length > 0 ? chapters : [{
-                title: "立即播放",
-                url: html.querySelector("a[href*='/play/']")?.getAttribute("href") || rule.homeUrl
-            }];
-        } catch (e) {
-            // 异常兜底
-            result.lists = [{title: "暂无章节", url: rule.homeUrl}];
-        }
-        return result;
+        } catch (e) {}
+        return {
+            lists: chapters,
+            pic: html.querySelector('img[alt*="封面"], img[class*="cover"], div.w-32 img')?.src || '',
+            desc: html.querySelector('.line-clamp-3, .book-intro, p[class*="intro"]')?.textContent?.trim() || ''
+        };
     }),
     lazy: $js.toString(async () => {
-        let audioUrl = input;
+        const fetchWithRetry = async (url, options, maxRetries = 3, delay = 1500) => {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + delay * i));
+                    const res = await fetch(url, {
+                        ...options,
+                        timeout: rule.timeout,
+                        cache: 'no-store'
+                    });
+                    if (res.status >= 500 && i < maxRetries - 1) continue;
+                    return res;
+                } catch (e) {
+                    if (i === maxRetries - 1) throw e;
+                }
+            }
+        };
         try {
-            const res = await fetch(input, {headers: rule.headers, timeout: rule.timeout});
-            const htmlStr = await res.text();
-            const match = htmlStr.match(/new APlayer\({[\s\S]*?url:\s*["']([^"']+\.(m4a|mp3))["']/i);
-            audioUrl = match ? (match[1].startsWith("/") ? rule.host + match[1] : match[1]) : input;
-        } catch (e) {}
-        return {url: audioUrl, parse: 0};
+            const playPageRes = await fetchWithRetry(input, { headers: rule.headers });
+            const playHtml = await playPageRes.text();
+            let audioUrl = '';
+            const audioMatch = playHtml.match(/url:\s*["']([^"']+\.(m4a|mp3))["']/i) || playHtml.match(/src=["']([^"']+\.(m4a|mp3))["']/i);
+            if (audioMatch && audioMatch[1]) {
+                audioUrl = audioMatch[1].startsWith('//') ? 'https:' + audioMatch[1] : audioMatch[1];
+                audioUrl = audioUrl.startsWith('http://') ? audioUrl.replace('http://', 'https://') : audioUrl;
+            }
+            return { url: audioUrl || input, parse: 0 };
+        } catch (e) {
+            return { url: input, parse: 0 };
+        }
     }),
     play_parse: false,
     sniffer: 0
