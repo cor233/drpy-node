@@ -1,3 +1,13 @@
+/*
+@header({
+  searchable: 1,
+  filterable: 0,
+  quickSearch: 0,
+  title: '275听书[听]',
+  '类型': '听书',
+  lang: 'ds'
+})
+*/
 var rule = {
     // 基础配置
     类型: '听书', 
