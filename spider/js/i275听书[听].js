@@ -1,5 +1,15 @@
+/*
+@header({
+  searchable: 1,
+  filterable: 0,
+  quickSearch: 0,
+  title: 'i275听书网',
+  '类型': '听书',
+  lang: 'ds'
+})
+*/
 var rule = {
-    title: '275听书网',
+    title: 'i275听书网',
     类型: '听书',
     host: 'https://m.i275.com',
     homeUrl: '/',
