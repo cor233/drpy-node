@@ -10,7 +10,7 @@
 */
 var rule = {
     类型: '听书',
-    title: '275听书[听]',
+    title: '275听书网',
     编码: 'utf-8',
     host: 'https://m.i275.com',
     homeUrl: '/',
@@ -40,8 +40,7 @@ var rule = {
     globalCookie: '',
     预处理: async function () {
         try {
-            let res = await request(this.host, { headers: this.headers, withCookie: true });
-            // 内置request会自动保存cookie，无需手动处理
+            await request(this.host, { headers: this.headers, withCookie: true });
         } catch (e) {}
         return this.host;
     },
@@ -121,47 +120,91 @@ var rule = {
         };
     },
     lazy: async function () {
+        // 添加随机延迟，模拟人类访问
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000));
+
         let html = await request(this.input, { headers: this.headers, timeout: this.timeout });
         if (html.includes('275听书网提示您') || html.includes('请您支持正版')) {
             return { url: this.input, parse: 1 };
         }
-        let audioUrl = null;
-        let patterns = [
-            /url:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
-            /audioUrl\s*=\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
-            /<audio[^>]+src=['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
-            /(https?:\/\/[^'"\s]+\.(?:m4a|mp3|aac|wav|ogg)(?:\?[^'"\s]*)?)/i
+
+        // 定义所有可能的匹配模式（来自Python下载器）
+        const patterns = [
+            /url:\s*'([^']+)'/i,
+            /"url"\s*:\s*"([^"]+)"/i,
+            /url:\s*"([^"]+)"/i,
+            /audioUrl\s*=\s*['"]([^'"]+)['"]/i,
+            /var\s+audioUrl\s*=\s*['"]([^'"]+)['"]/i,
+            /<audio[^>]+src="([^"]+)"/i,
+            /<source[^>]+src="([^"]+)"/i,
+            /"audio"\s*:\s*\{\s*"url"\s*:\s*"([^"]+)"/i,
+            /"play_url"\s*:\s*"([^"]+)"/i,
+            /audio:\s*\[\s*\{\s*url:\s*['"]([^'"]+)['"]/i,
+            /new\s+APlayer.*?url:\s*['"]([^'"]+)['"]/is
         ];
+
+        let audioUrl = null;
+
+        // 在整个HTML中匹配
         for (let pattern of patterns) {
             let match = html.match(pattern);
-            if (match) {
-                audioUrl = match[1] || match[0];
+            if (match && match[1]) {
+                audioUrl = match[1];
                 break;
             }
         }
+
+        // 如果没找到，遍历所有script标签内容
         if (!audioUrl) {
-            let scriptMatches = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
-            for (let script of scriptMatches) {
+            const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+            let scriptMatch;
+            while ((scriptMatch = scriptRegex.exec(html)) !== null) {
+                let scriptContent = scriptMatch[1];
                 for (let pattern of patterns) {
-                    let match = script.match(pattern);
-                    if (match) {
-                        audioUrl = match[1] || match[0];
+                    let match = scriptContent.match(pattern);
+                    if (match && match[1]) {
+                        audioUrl = match[1];
                         break;
                     }
                 }
                 if (audioUrl) break;
             }
         }
+
+        // 如果仍未找到，尝试匹配JSON格式的音频对象
+        if (!audioUrl) {
+            // 查找包含"audio"或"url"的JSON块
+            const jsonRegex = /\{(?:[^{}]|"[^"]*")*audio[^{}]*\}/gi;
+            let jsonMatch;
+            while ((jsonMatch = jsonRegex.exec(html)) !== null) {
+                try {
+                    // 尝试将JavaScript对象转为JSON
+                    let jsonStr = jsonMatch[0].replace(/(\w+):/g, '"$1":').replace(/'/g, '"');
+                    let data = JSON.parse(jsonStr);
+                    if (data.url) audioUrl = data.url;
+                    else if (data.src) audioUrl = data.src;
+                    else if (data.audio && data.audio.url) audioUrl = data.audio.url;
+                    if (audioUrl) break;
+                } catch (e) {}
+            }
+        }
+
+        // 清理URL中的转义斜杠
         if (audioUrl) {
+            audioUrl = audioUrl.replace(/\\\//g, '/');
+            // 补全URL
             if (audioUrl.startsWith('//')) audioUrl = 'https:' + audioUrl;
             else if (audioUrl.startsWith('/')) audioUrl = this.host + audioUrl;
             else if (!audioUrl.startsWith('http')) audioUrl = this.host + '/' + audioUrl;
+
             return {
                 url: audioUrl,
                 parse: 0,
                 headers: { 'Referer': this.host, 'User-Agent': this.headers['User-Agent'] }
             };
         }
+
+        // 所有方法都失败，交给嗅探
         return { url: this.input, parse: 1 };
     }
 };
