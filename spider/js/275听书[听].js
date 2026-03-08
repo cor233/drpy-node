@@ -9,125 +9,147 @@
 })
 */
 var rule = {
-    title: '275听书网',
-    host: 'https://m.i275.com',          // 优先使用移动端域名（若无效请改回 www.i275.com）
     类型: '听书',
-    编码: 'utf-8',
+    title: '275听书网',
+    host: 'https://m.i275.com',
     homeUrl: '/',
-    class_name: '最新上架',
+    // 静态分类（只有“最近上架”一类）
+    class_name: '最近上架',
     class_url: 'latest',
-    url: '/?page=fypage',                 // 分类页分页链接（需确认实际分页参数）
-    searchUrl: '/search.php?q=**&page=fypage', // 搜索分页
+    url: '/', // 分类页面链接，一级函数将直接使用首页
+    searchUrl: '/search.php?q=**',
     searchable: 1,
-    quickSearch: 1,
+    quickSearch: 0,
+    filterable: 0,
     headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     },
     timeout: 5000,
     play_parse: true,
 
-    // 首页推荐（与一级相同，基于主站结构）
-    推荐: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
-
-    // 一级列表（分类页列表）
-    一级: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
-
-    // 二级详情（提取书籍信息及章节列表）
-    二级: async function () {
-        let html = await request(this.input);
-        // 基本信息
-        let title = pdfh(html, 'h1.text-2xl&&Text') || pdfh(html, 'meta[property="og:title"]&&content') || '';
-        let img = pdfh(html, '.w-32.h-44 img&&src') || pdfh(html, 'meta[property="og:image"]&&content') || '';
-        let author = pdfh(html, 'p:contains("作者：") span&&Text') || '';
-        let narrator = pdfh(html, 'p:contains("演播：") span&&Text') || '';
-        let desc = pdfh(html, '.bg-white.p-4 p.text-gray-600&&Text') || pdfh(html, 'meta[name="description"]&&content') || '';
-
-        // 章节列表提取（适配多种选择器）
-        let chapterItems = [];
-        chapterItems = pdfa(html, '.grid.grid-cols-1 a[id^="chapter-pos-"]');
-        if (chapterItems.length === 0) {
-            chapterItems = pdfa(html, '.divide-y a[href^="/play/"]');
-        }
-        if (chapterItems.length === 0) {
-            chapterItems = pdfa(html, 'a[href*="/play/"]');
-        }
-
-        let lists = [];
-        chapterItems.forEach(item => {
-            let name = pdfh(item, 'span.text-sm&&Text') || pdfh(item, 'span:last-child&&Text') || item.textContent.trim();
-            let url = pdfh(item, 'href');
-            if (url && name) {
-                url = urljoin(HOST, url);
-                lists.push({ name, url });
-            }
-        });
-
-        // 去重
-        let uniqueLists = [];
-        let seenUrls = new Set();
-        lists.forEach(item => {
-            if (!seenUrls.has(item.url)) {
-                seenUrls.add(item.url);
-                uniqueLists.push(item);
-            }
-        });
-
-        let tabs = uniqueLists.length ? [{ name: '默认线路', lists: uniqueLists }] : [];
-        let fullDesc = `作者：${author} 演播：${narrator}\n${desc}`.trim();
-        return { title, img, desc: fullDesc, tabs };
-    },
-
-    // 搜索（基于搜索结果页）
-    搜索: async function () {
-        let html = await request(this.input);
-        let result = [];
-        let items = pdfa(html, '.bg-white .divide-y a');
-        items.forEach(item => {
-            let title = pdfh(item, 'h3&&Text');
-            let img = pdfh(item, 'img&&src');
-            let narrator = '', author = '';
-            let pNodes = pdfa(item, 'p');
-            pNodes.forEach(p => {
-                let spanText = pdfh(p, 'span.bg-gray-100&&Text');
-                let text = pdfh(p, 'Text', 1);
-                if (spanText.includes('演播')) narrator = text;
-                if (spanText.includes('作者')) author = text;
-            });
-            let desc = `演播：${narrator} 作者：${author}`.replace(/\s+/g, ' ').trim();
-            let link = pdfh(item, 'a&&href');
-            if (title && link) {
-                link = urljoin(HOST, link);
-                result.push({ title, img, desc, link });
-            }
-        });
-        return result;
-    },
-
-    // lazy 获取真实音频链接
+    // ----- 懒加载：从播放页提取真实音频地址 -----
     lazy: async function () {
-        let url = this.input;
-        if (/\.(mp3|m4a|aac|flac|m3u8)$/i.test(url)) {
-            return { url, parse: 0 };
-        }
-        let html = await request(url);
-        // 提取 APlayer 初始化中的音频链接
+        let html = await request(this.input);
+        // 匹配 APlayer 初始化代码中的音频 URL
         let match = html.match(/url:\s*'([^']+)'/);
         if (match) {
-            let audioUrl = match[1];
-            audioUrl = urljoin(url, audioUrl);
-            return { url: audioUrl, parse: 0 };
+            return {
+                url: match[1],
+                parse: 0,
+                headers: { 'Referer': this.host } // 防止防盗链
+            };
         }
-        // 尝试 audio 标签
-        let audioSrc = pdfh(html, 'audio&&src');
-        if (audioSrc) {
-            audioSrc = urljoin(url, audioSrc);
-            return { url: audioSrc, parse: 0 };
-        }
-        // 正则匹配常见音频格式
-        let matches = html.match(/https?:[^"'\s]+\.(mp3|m4a|aac|flac)/i);
-        if (matches) {
-            return { url: matches[0], parse: 0 };
-        }
-        return { url, parse: 1 };
+        return {};
+    },
+
+    // ----- 首页推荐（最近上架）-----
+    推荐: async function () {
+        let html = await request(this.host);
+        // 定位所有书籍项
+        let items = pdfa(html, 'div.grid a');
+        let videos = [];
+        items.forEach(item => {
+            let title = pdfh(item, 'div.p-2 div.font-medium&&Text');
+            let img = pdfh(item, 'img&&src');
+            let desc = pdfh(item, 'div.p-2 div.text-xs&&Text'); // 演播者
+            let url = pdfh(item, 'a&&href');
+            if (title && url) {
+                videos.push({
+                    title: title.trim(),
+                    img: img,
+                    desc: desc ? desc.trim() : '',
+                    url: urljoin2(this.host, url)
+                });
+            }
+        });
+        return videos;
+    },
+
+    // ----- 一级分类（与推荐相同，因为只有一类）-----
+    一级: async function () {
+        // 直接复用推荐逻辑
+        let html = await request(this.host);
+        let items = pdfa(html, 'div.grid a');
+        let videos = [];
+        items.forEach(item => {
+            let title = pdfh(item, 'div.p-2 div.font-medium&&Text');
+            let img = pdfh(item, 'img&&src');
+            let desc = pdfh(item, 'div.p-2 div.text-xs&&Text');
+            let url = pdfh(item, 'a&&href');
+            if (title && url) {
+                videos.push({
+                    title: title.trim(),
+                    img: img,
+                    desc: desc ? desc.trim() : '',
+                    url: urljoin2(this.host, url)
+                });
+            }
+        });
+        return videos;
+    },
+
+    // ----- 二级详情页：提取书籍信息及章节列表 -----
+    二级: async function () {
+        let html = await request(this.input);
+        let vod = {};
+
+        // 基本信息
+        vod.vod_name = pdfh(html, 'h1.text-2xl&&Text');
+        vod.vod_pic = pdfh(html, 'div.w-32 img&&src');
+
+        // 作者（使用正则，避免css contains可能不支持）
+        let authorMatch = html.match(/作者：<span[^>]*>([^<]+)</);
+        vod.vod_writer = authorMatch ? authorMatch[1].trim() : '';
+
+        // 演播
+        let actorMatch = html.match(/演播：<span[^>]*>([^<]+)</);
+        vod.vod_actor = actorMatch ? actorMatch[1].trim() : '';
+
+        // 简介
+        let intro = pdfh(html, 'div.mt-3.bg-white p.text-gray-600&&Text');
+        vod.vod_content = intro ? intro.trim() : '';
+
+        // 章节列表
+        let items = pdfa(html, 'div.grid a');
+        let playList = [];
+        items.forEach(item => {
+            let name = pdfh(item, 'span.text-sm&&Text');
+            let link = pdfh(item, 'a&&href');
+            if (name && link) {
+                playList.push(name.trim() + '$' + urljoin2(this.host, link));
+            }
+        });
+
+        vod.vod_play_from = '正文';
+        vod.vod_play_url = playList.join('#');
+
+        // 可选：设置vod_id（从URL提取书籍ID）
+        let idMatch = this.input.match(/book\/(\d+)\.html/);
+        if (idMatch) vod.vod_id = idMatch[1];
+
+        return vod;
+    },
+
+    // ----- 搜索：解析搜索结果页 -----
+    搜索: async function () {
+        let searchUrl = this.host + '/search.php?q=' + encodeURIComponent(this.input);
+        let html = await request(searchUrl);
+        let items = pdfa(html, 'div.divide-y a');
+        let videos = [];
+        items.forEach(item => {
+            let title = pdfh(item, 'h3.text-base&&Text');
+            let img = pdfh(item, 'img&&src');
+            let desc = pdfh(item, 'p.text-xs.text-gray-400&&Text'); // 简介
+            let url = pdfh(item, 'a&&href');
+            if (title && url) {
+                videos.push({
+                    title: title.trim(),
+                    img: img,
+                    desc: desc ? desc.trim() : '',
+                    url: urljoin2(this.host, url)
+                });
+            }
+        });
+        return videos;
     }
 };
