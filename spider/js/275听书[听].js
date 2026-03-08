@@ -110,97 +110,33 @@ var rule = {
             vod_play_url: playList.length > 0 ? playList.join('#') : '暂无章节'
         };
     },
-    lazy: $js.toString(async () => {
-        const fetchWithRetry = async (url, options, maxRetries = 4, delay = 2000) => {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + delay * i));
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), rule.timeout);
-                    const res = await fetch(url, { ...options, signal: controller.signal });
-                    clearTimeout(timeoutId);
-                    if (res.ok) return res;
-                    if (i === maxRetries - 1) throw new Error(`HTTP ${res.status}`);
-                } catch (e) {
-                    if (i === maxRetries - 1) throw e;
-                }
-            }
-        };
-        const normalizeUrl = (url) => {
-            if (!url) return '';
-            url = url.trim().replace(/^['"]|['"]$/g, '');
-            if (url.startsWith('//')) url = 'https:' + url;
-            else if (url.startsWith('http://')) url = url.replace('http://', 'https://');
-            else if (!url.startsWith('http')) url = url.startsWith('/') ? rule.host + url : rule.host + '/' + url;
-            return url;
-        };
-        try {
-            const playPageRes = await fetchWithRetry(input, { headers: rule.headers });
-            const playHtml = await playPageRes.text();
-            const scriptContents = [];
-            const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
-            let scriptMatch;
-            while ((scriptMatch = scriptRegex.exec(playHtml)) !== null) {
-                scriptContents.push(scriptMatch[1]);
-            }
-            let audioUrl = null;
-            const patterns = [
-                /audio:\s*\[\s*\{\s*[^}]*?url:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
-                /new\s+APlayer\s*\(\s*\{[^}]*audio:\s*\[\s*\{\s*url:\s*['"]([^'"]+)['"]/i,
-                /(?:var|let|const)\s+(?:audioUrl|audioSrc|playUrl)\s*=\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
-                /<audio[^>]*src=['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
-                /["'](?:url|src|file)["']\s*:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)(?:\?[^'"]*)?)['"]/i,
-                /(https?:\/\/[^'"\s]+\.(?:m4a|mp3|aac|wav|ogg)(?:\?[^'"\s]*)?)/i
-            ];
-            for (let pattern of patterns) {
-                const match = playHtml.match(pattern);
-                if (match && match[1]) {
-                    audioUrl = match[1];
-                    break;
-                }
-            }
-            if (!audioUrl) {
-                for (let script of scriptContents) {
-                    for (let pattern of patterns) {
-                        const match = script.match(pattern);
-                        if (match && match[1]) {
-                            audioUrl = match[1];
-                            break;
-                        }
-                    }
-                    if (audioUrl) break;
-                }
-            }
-            if (!audioUrl) {
-                const jsonMatches = playHtml.match(/\{(?:[^{}]|"[^"]*")*audio[^{}]*\}/gi);
-                if (jsonMatches) {
-                    for (let jsonStr of jsonMatches) {
-                        try {
-                            const safeJson = jsonStr.replace(/(\w+):/g, '"$1":');
-                            const data = JSON.parse(safeJson);
-                            audioUrl = data.url || data.src || data.audio || (data.audio && data.audio.url);
-                            if (audioUrl) break;
-                        } catch (e) {}
-                    }
-                }
-            }
-            audioUrl = normalizeUrl(audioUrl);
-            if (audioUrl) {
+    lazy: async function () {
+        let html = await request(this.input, { headers: this.headers, timeout: this.timeout });
+        if (html.includes('275听书网提示您') || html.includes('请您支持正版')) {
+            return { url: this.input, parse: 1 };
+        }
+        let patterns = [
+            /url:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
+            /audioUrl\s*=\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
+            /<audio[^>]+src=['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
+            /(https?:\/\/[^'"\s]+\.(?:m4a|mp3|aac|wav|ogg)(?:\?[^'"\s]*)?)/i
+        ];
+        for (let pattern of patterns) {
+            let match = html.match(pattern);
+            if (match) {
+                let audioUrl = match[1] || match[0];
+                if (audioUrl.startsWith('//')) audioUrl = 'https:' + audioUrl;
+                else if (audioUrl.startsWith('/')) audioUrl = this.host + audioUrl;
+                else if (!audioUrl.startsWith('http')) audioUrl = this.host + '/' + audioUrl;
                 return {
                     url: audioUrl,
                     parse: 0,
-                    headers: {
-                        'Referer': 'https://m.i275.com/',
-                        'User-Agent': rule.headers['User-Agent']
-                    }
+                    headers: { 'Referer': this.host, 'User-Agent': this.headers['User-Agent'] }
                 };
-            } else {
-                return { url: input, parse: 1 };
             }
-        } catch (e) {
-            return { url: input, parse: 1 };
         }
-    }),
+        return { url: this.input, parse: 1 };
+    },
     play_parse: false,
     sniffer: 0,
     globalCookie: '',
