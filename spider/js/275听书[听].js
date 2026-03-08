@@ -29,6 +29,7 @@ var rule = {
         let homeHtml = await request(this.host);
         let cookie = homeHtml.match(/set-cookie: ([^;]+)/i) || '';
         this.headers.Cookie = cookie;
+        this.headers.Referer = this.host;
     },
     推荐: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
     一级: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
@@ -40,9 +41,9 @@ var rule = {
         let narrator = pdfh(html, 'p:contains("演播：") span&&Text') || '';
         let desc = pdfh(html, '.bg-white.p-4 p.text-gray-600&&Text') || pdfh(html, 'meta[name="description"]&&content') || '';
         let tabs = [], lists = [];
-        let chapterItems = pdfa(html, 'a[href*="/play/"]');
+        let chapterItems = pdfa(html, 'a[id^="chapter-pos-"]');
         if (chapterItems.length === 0) {
-            chapterItems = pdfa(html, 'a[id^="chapter-pos-"]');
+            chapterItems = pdfa(html, 'a[href*="/play/"]');
         }
         chapterItems.forEach(item => {
             let name = pdfh(item, 'span.text-sm.truncate&&Text') || pdfh(item, 'span.text-sm&&Text') || pdfh(item, 'a&&Text') || '第' + (lists.length+1) + '集';
@@ -88,23 +89,29 @@ var rule = {
     lazy: async function () {
         let url = this.input;
         if (/\.(mp3|m4a|aac|flac|m3u8)$/i.test(url)) {
-            return { url, parse: 0 };
+            return { url, parse: 1 };
         }
         let html = await request(url);
+        let audioUrl = null;
         let match = html.match(/url:\s*'([^']+)'/);
         if (match) {
-            let audioUrl = match[1];
+            audioUrl = match[1];
+        }
+        if (!audioUrl) {
+            let srcMatch = html.match(/<audio[^>]+src="([^"]+)"/i);
+            if (srcMatch) {
+                audioUrl = srcMatch[1];
+            }
+        }
+        if (!audioUrl) {
+            let fileMatch = html.match(/https?:[^"'\s]+\.(mp3|m4a|aac|flac)(?:\?[^"'\s]*)?/i);
+            if (fileMatch) {
+                audioUrl = fileMatch[0];
+            }
+        }
+        if (audioUrl) {
             audioUrl = urljoin(url, audioUrl);
-            return { url: audioUrl, parse: 0 };
-        }
-        let audioSrc = pdfh(html, 'audio&&src');
-        if (audioSrc) {
-            audioSrc = urljoin(url, audioSrc);
-            return { url: audioSrc, parse: 0 };
-        }
-        let matches = html.match(/https?:[^"'\s]+\.(mp3|m4a|aac|flac)/i);
-        if (matches) {
-            return { url: matches[0], parse: 0 };
+            return { url: audioUrl, parse: 1 };
         }
         return { url, parse: 1 };
     }
