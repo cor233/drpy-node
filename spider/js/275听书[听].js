@@ -40,9 +40,9 @@ var rule = {
         let narrator = pdfh(html, 'p:contains("演播：") span&&Text') || '';
         let desc = pdfh(html, '.bg-white.p-4 p.text-gray-600&&Text') || pdfh(html, 'meta[name="description"]&&content') || '';
         let tabs = [], lists = [];
-        let chapterItems = pdfa(html, 'a[id^="chapter-pos-"]');
+        let chapterItems = pdfa(html, 'a[href*="/play/"]');
         if (chapterItems.length === 0) {
-            chapterItems = pdfa(html, '.grid a[href*="/play/"]');
+            chapterItems = pdfa(html, 'a[id^="chapter-pos-"]');
         }
         chapterItems.forEach(item => {
             let name = pdfh(item, 'span.text-sm.truncate&&Text') || pdfh(item, 'span.text-sm&&Text') || pdfh(item, 'a&&Text') || '第' + (lists.length+1) + '集';
