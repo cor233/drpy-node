@@ -10,7 +10,7 @@
 */
 var rule = {
     类型: '听书',
-    title: '275听书网',
+    title: '275听书[听]',
     编码: 'utf-8',
     host: 'https://m.i275.com',
     homeUrl: '/',
