@@ -63,78 +63,53 @@ var rule = {
         } catch (e) {}
         return lists;
     }),
-    二级: $js.toString(async function() {
-        const fetchWithRetry = async (url, options, maxRetries = 4, delay = 2000) => {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + delay * i));
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), rule.timeout);
-                    const res = await fetch(url, { ...options, signal: controller.signal });
-                    clearTimeout(timeoutId);
-                    if (res.ok) return res;
-                    if (i === maxRetries - 1) throw new Error(`HTTP ${res.status}`);
-                } catch (e) {
-                    if (i === maxRetries - 1) throw e;
-                }
-            }
-        };
-        try {
-            const requestHeaders = { ...rule.headers };
-            if (rule.globalCookie) {
-                requestHeaders.Cookie = rule.globalCookie;
-            }
-            const detailRes = await fetchWithRetry(input, { headers: requestHeaders });
-            const html = await detailRes.text();
-            if (html.includes('275听书网提示您') || html.includes('请您支持正版')) {
-                return {
-                    lists: [{ title: '⚠️ 访问被拦截，请稍后重试', url: '' }],
-                    pic: '',
-                    desc: '网站返回了支持正版提示，可能触发了反爬机制。请等待几分钟后再试，或尝试更换网络环境。'
-                };
-            }
-            let chapters = [];
-            let bookPic = '';
-            let bookDesc = '';
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const coverImg = doc.querySelector('div.w-32 img, div.book-cover img');
-            bookPic = coverImg ? coverImg.src : '';
-            const introEl = doc.querySelector('.line-clamp-3');
-            bookDesc = introEl ? introEl.textContent.trim() : '暂无简介';
-            const chapterLinks = doc.querySelectorAll('a[id^="chapter-pos-"]');
-            if (chapterLinks.length > 0) {
-                chapterLinks.forEach(link => {
-                    const href = link.getAttribute('href');
-                    const text = link.textContent.replace(/\d+\.\s*/, '').trim();
-                    if (href && href.includes('/play/') && text) {
-                        let fullHref = href.startsWith('http') ? href : (href.startsWith('/') ? rule.host + href : rule.host + '/' + href);
-                        chapters.push({ title: text, url: fullHref });
-                    }
-                });
-            } else {
-                doc.querySelectorAll('a[href*="/play/"]').forEach(link => {
-                    const href = link.getAttribute('href');
-                    const text = link.textContent.trim();
-                    if (href && text && !text.includes('上一页') && !text.includes('下一页')) {
-                        let fullHref = href.startsWith('http') ? href : (href.startsWith('/') ? rule.host + href : rule.host + '/' + href);
-                        chapters.push({ title: text, url: fullHref });
-                    }
-                });
-            }
+    二级: async function () {
+        let html = await request(this.input, { headers: this.headers, timeout: this.timeout });
+        if (html.includes('275听书网提示您') || html.includes('请您支持正版')) {
             return {
-                lists: chapters.length > 0 ? chapters : [{ title: '暂无章节', url: '' }],
-                pic: bookPic,
-                desc: bookDesc
-            };
-        } catch (e) {
-            return {
-                lists: [{ title: '请求失败，请检查网络', url: '' }],
-                pic: '',
-                desc: '错误：' + e.message
+                vod_id: '',
+                vod_name: '访问被拦截',
+                vod_pic: '',
+                vod_content: '网站返回了支持正版提示，请稍后重试。',
+                vod_play_from: '提示',
+                vod_play_url: '暂无章节'
             };
         }
-    }),
+        let pic = pdfh(html, 'div.w-32 img&&src') || pdfh(html, 'div.book-cover img&&src');
+        let desc = pdfh(html, '.line-clamp-3&&Text') || '暂无简介';
+        let items = pdfa(html, 'a[id^="chapter-pos-"]');
+        let playList = [];
+        items.forEach(item => {
+            let name = pdfh(item, 'span.text-sm&&Text') || pdfh(item, 'a&&Text');
+            let link = pdfh(item, 'a&&href');
+            if (name && link && link.includes('/play/')) {
+                let fullLink = urljoin2(this.host, link);
+                playList.push(name.trim() + '$' + fullLink);
+            }
+        });
+        if (playList.length === 0) {
+            items = pdfa(html, 'a[href*="/play/"]');
+            items.forEach(item => {
+                let name = pdfh(item, 'a&&Text');
+                let link = pdfh(item, 'a&&href');
+                if (name && link && !name.includes('上一页') && !name.includes('下一页')) {
+                    let fullLink = urljoin2(this.host, link);
+                    playList.push(name.trim() + '$' + fullLink);
+                }
+            });
+        }
+        let name = pdfh(html, 'h1.text-2xl&&Text');
+        let author = html.match(/作者：<span[^>]*>([^<]+)</)?.[1] || '';
+        return {
+            vod_id: this.input.match(/book\/(\d+)/)?.[1] || '',
+            vod_name: name,
+            vod_pic: pic,
+            vod_content: desc,
+            vod_actor: author,
+            vod_play_from: playList.length > 0 ? '正文' : '提示',
+            vod_play_url: playList.length > 0 ? playList.join('#') : '暂无章节'
+        };
+    },
     lazy: $js.toString(async () => {
         const fetchWithRetry = async (url, options, maxRetries = 4, delay = 2000) => {
             for (let i = 0; i < maxRetries; i++) {
