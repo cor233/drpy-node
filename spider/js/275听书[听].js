@@ -35,6 +35,16 @@ var rule = {
     limit: 12,
     hikerListCol: "avatar",
     hikerClassListCol: "avatar",
+    sniffer: 1,
+    play_parse: true,
+    globalCookie: '',
+    预处理: async function () {
+        try {
+            let res = await request(this.host, { headers: this.headers, withCookie: true });
+            // 内置request会自动保存cookie，无需手动处理
+        } catch (e) {}
+        return this.host;
+    },
     推荐: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
     一级: '.grid a;div.font-medium&&Text;img&&src;div.text-xs&&Text;a&&href',
     搜索: $js.toString(() => {
@@ -115,6 +125,7 @@ var rule = {
         if (html.includes('275听书网提示您') || html.includes('请您支持正版')) {
             return { url: this.input, parse: 1 };
         }
+        let audioUrl = null;
         let patterns = [
             /url:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
             /audioUrl\s*=\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
@@ -124,33 +135,33 @@ var rule = {
         for (let pattern of patterns) {
             let match = html.match(pattern);
             if (match) {
-                let audioUrl = match[1] || match[0];
-                if (audioUrl.startsWith('//')) audioUrl = 'https:' + audioUrl;
-                else if (audioUrl.startsWith('/')) audioUrl = this.host + audioUrl;
-                else if (!audioUrl.startsWith('http')) audioUrl = this.host + '/' + audioUrl;
-                return {
-                    url: audioUrl,
-                    parse: 0,
-                    headers: { 'Referer': this.host, 'User-Agent': this.headers['User-Agent'] }
-                };
+                audioUrl = match[1] || match[0];
+                break;
             }
         }
-        return { url: this.input, parse: 1 };
-    },
-    play_parse: false,
-    sniffer: 0,
-    globalCookie: '',
-    预处理: async function () {
-        try {
-            const homeRes = await fetch(this.host, {
-                headers: this.headers,
-                credentials: 'include'
-            });
-            const setCookie = homeRes.headers.get('set-cookie');
-            if (setCookie) {
-                this.globalCookie = setCookie.split(';')[0];
+        if (!audioUrl) {
+            let scriptMatches = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
+            for (let script of scriptMatches) {
+                for (let pattern of patterns) {
+                    let match = script.match(pattern);
+                    if (match) {
+                        audioUrl = match[1] || match[0];
+                        break;
+                    }
+                }
+                if (audioUrl) break;
             }
-        } catch (e) {}
-        return this.host;
+        }
+        if (audioUrl) {
+            if (audioUrl.startsWith('//')) audioUrl = 'https:' + audioUrl;
+            else if (audioUrl.startsWith('/')) audioUrl = this.host + audioUrl;
+            else if (!audioUrl.startsWith('http')) audioUrl = this.host + '/' + audioUrl;
+            return {
+                url: audioUrl,
+                parse: 0,
+                headers: { 'Referer': this.host, 'User-Agent': this.headers['User-Agent'] }
+            };
+        }
+        return { url: this.input, parse: 1 };
     }
 };
