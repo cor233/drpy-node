@@ -10,7 +10,7 @@
 */
 var rule = {
     类型: '听书',
-    title: '275听书[听]',
+    title: '275听书网',
     编码: 'utf-8',
     host: 'https://m.i275.com',
     homeUrl: '/',
@@ -144,16 +144,32 @@ var rule = {
             const playPageRes = await fetchWithRetry(input, { headers: rule.headers });
             const playHtml = await playPageRes.text();
 
+            // 提取所有 script 标签内容
+            const scriptContents = [];
+            const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+            let scriptMatch;
+            while ((scriptMatch = scriptRegex.exec(playHtml)) !== null) {
+                scriptContents.push(scriptMatch[1]);
+            }
+
+            let audioUrl = null;
+
+            // 定义所有可能的匹配模式
             const patterns = [
+                // APlayer 初始化
                 /audio:\s*\[\s*\{\s*[^}]*?url:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
                 /new\s+APlayer\s*\(\s*\{[^}]*audio:\s*\[\s*\{\s*url:\s*['"]([^'"]+)['"]/i,
+                // JavaScript 变量
                 /(?:var|let|const)\s+(?:audioUrl|audioSrc|playUrl)\s*=\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
+                // <audio> 标签
                 /<audio[^>]*src=['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)[^'"]*)['"]/i,
+                // JSON 属性
                 /["'](?:url|src|file)["']\s*:\s*['"]([^'"]+\.(?:m4a|mp3|aac|wav|ogg)(?:\?[^'"]*)?)['"]/i,
+                // 直接匹配 http 链接
                 /(https?:\/\/[^'"\s]+\.(?:m4a|mp3|aac|wav|ogg)(?:\?[^'"\s]*)?)/i
             ];
 
-            let audioUrl = null;
+            // 先在整体 HTML 中匹配
             for (let pattern of patterns) {
                 const match = playHtml.match(pattern);
                 if (match && match[1]) {
@@ -162,21 +178,52 @@ var rule = {
                 }
             }
 
+            // 如果未找到，遍历所有 script 内容尝试匹配
             if (!audioUrl) {
-                const jsonMatch = playHtml.match(/\{(?:[^{}]|"[^"]*")*audio[^{}]*\}/i);
-                if (jsonMatch) {
-                    try {
-                        const safeJson = jsonMatch[0].replace(/(\w+):/g, '"$1":');
-                        const data = JSON.parse(safeJson);
-                        audioUrl = data.url || data.src || data.audio || (data.audio && data.audio.url);
-                    } catch (e) {}
+                for (let script of scriptContents) {
+                    for (let pattern of patterns) {
+                        const match = script.match(pattern);
+                        if (match && match[1]) {
+                            audioUrl = match[1];
+                            break;
+                        }
+                    }
+                    if (audioUrl) break;
                 }
             }
 
-            return {
-                url: normalizeUrl(audioUrl) || input,
-                parse: audioUrl ? 0 : 1
-            };
+            // 尝试解析可能的 JSON 块
+            if (!audioUrl) {
+                const jsonMatches = playHtml.match(/\{(?:[^{}]|"[^"]*")*audio[^{}]*\}/gi);
+                if (jsonMatches) {
+                    for (let jsonStr of jsonMatches) {
+                        try {
+                            const safeJson = jsonStr.replace(/(\w+):/g, '"$1":');
+                            const data = JSON.parse(safeJson);
+                            audioUrl = data.url || data.src || data.audio || (data.audio && data.audio.url);
+                            if (audioUrl) break;
+                        } catch (e) {}
+                    }
+                }
+            }
+
+            // 格式化 URL
+            audioUrl = normalizeUrl(audioUrl);
+
+            // 如果找到音频 URL，返回带请求头的对象
+            if (audioUrl) {
+                return {
+                    url: audioUrl,
+                    parse: 0,
+                    headers: {
+                        'Referer': 'https://m.i275.com/',
+                        'User-Agent': rule.headers['User-Agent']
+                    }
+                };
+            } else {
+                // 未找到则返回原 URL 并允许二次解析
+                return { url: input, parse: 1 };
+            }
         } catch (e) {
             return { url: input, parse: 1 };
         }
