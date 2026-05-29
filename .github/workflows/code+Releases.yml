@@ -15,7 +15,6 @@ jobs:
       - name: 检出目标仓库
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.SYNC_TOKEN }}
           fetch-depth: 0
 
       - name: 配置Git用户信息
@@ -38,12 +37,8 @@ jobs:
   sync-releases:
     runs-on: ubuntu-latest
     needs: sync-code
-    permissions:
-      contents: write
     steps:
       - name: 获取源仓库所有 Releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SOURCE_REPO="zourjke/drpy-node"
           PAGE=1
@@ -52,9 +47,7 @@ jobs:
 
           while true; do
             API_URL="https://api.github.com/repos/${SOURCE_REPO}/releases?per_page=${PER_PAGE}&page=${PAGE}"
-            RESPONSE=$(curl -s -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: token $GH_TOKEN" \
-              "$API_URL")
+            RESPONSE=$(curl -s "$API_URL")
 
             if ! echo "$RESPONSE" | jq -e 'type == "array"' > /dev/null 2>&1; then
               echo "错误：API 响应不是数组，退出。"
@@ -80,8 +73,6 @@ jobs:
           echo "$RELEASES_JSON" > releases.json
 
       - name: 按顺序处理每个 Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TARGET_REPO="${{ github.repository }}"
 
@@ -95,15 +86,9 @@ jobs:
             echo "=============================="
             echo "处理 Release: $TAG_NAME"
 
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/$TARGET_REPO/releases/tags/$TAG_NAME")
-
-            if [ "$HTTP_STATUS" -eq 200 ]; then
+            if gh release view "$TAG_NAME" --repo "$TARGET_REPO" &>/dev/null; then
               echo "已存在，跳过。"
               continue
-            elif [ "$HTTP_STATUS" -ne 404 ]; then
-              echo "警告：检查 Release 时返回状态码 $HTTP_STATUS，将尝试创建。"
             fi
 
             CREATE_CMD="gh release create \"$TAG_NAME\" --repo \"$TARGET_REPO\" --title \"$TITLE\""
